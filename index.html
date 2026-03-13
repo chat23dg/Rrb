@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#0a0f1e">
 <meta name="mobile-web-app-capable" content="true">
 <meta name="apple-mobile-web-app-capable" content="true">
@@ -18,10 +18,11 @@
   --safe-top:env(safe-area-inset-top,0px);--safe-bottom:env(safe-area-inset-bottom,0px);
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Nunito',sans-serif;overscroll-behavior:none;overscroll-behavior-y:none;touch-action:pan-x pan-y;}
+html{height:100%;overflow:hidden;overscroll-behavior:none;overscroll-behavior-y:none;touch-action:none;}
+body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Nunito',sans-serif;overscroll-behavior:none;overscroll-behavior-y:none;touch-action:none;position:fixed;width:100%;top:0;left:0;}
 .screen{position:fixed;inset:0;display:none;flex-direction:column;background:var(--bg);overflow:hidden;overscroll-behavior:none}
 .screen.active{display:flex}
-.scrollable{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;overscroll-behavior-y:contain;}
+.scrollable{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;overscroll-behavior-y:contain;touch-action:pan-y;will-change:scroll-position;}
 .scrollable::-webkit-scrollbar{display:none}
 
 /* TOPBAR */
@@ -3896,15 +3897,59 @@ function showToast(msg){const t=document.getElementById('toast');t.textContent=m
 loadSettings();
 renderHome();
 
-// ── PREVENT PULL-TO-REFRESH (WebView fix) ──
-let lastY = 0;
-document.addEventListener('touchstart', e => { lastY = e.touches[0].clientY; }, { passive: true });
+// ── PREVENT PULL-TO-REFRESH - AGGRESSIVE WEBVIEW FIX ──
+let _ty = 0, _tx = 0;
+
+// Block ALL touchmove on document level unless inside a .scrollable
+document.addEventListener('touchstart', e => {
+  _ty = e.touches[0].clientY;
+  _tx = e.touches[0].clientX;
+}, { passive: true });
+
 document.addEventListener('touchmove', e => {
-  const s = e.target.closest('.scrollable');
-  if (!s) { e.preventDefault(); return; }
-  if (s.scrollTop <= 0 && e.touches[0].clientY > lastY) e.preventDefault();
+  const touch = e.touches[0];
+  const dy = touch.clientY - _ty;
+  const dx = touch.clientX - _tx;
+  const isVertical = Math.abs(dy) > Math.abs(dx);
+
+  // Find if we are inside a scrollable container
+  const scrollEl = e.target.closest('.scrollable');
+
+  if (!scrollEl) {
+    // Not in a scrollable — block everything
+    e.preventDefault();
+    return;
+  }
+
+  if (isVertical) {
+    const atTop = scrollEl.scrollTop <= 0;
+    const atBottom = scrollEl.scrollTop >= scrollEl.scrollHeight - scrollEl.clientHeight - 1;
+    const pullingDown = dy > 0;
+    const pullingUp = dy < 0;
+
+    // Block pull-down at top and over-scroll at bottom
+    if ((atTop && pullingDown) || (atBottom && pullingUp && scrollEl.scrollHeight <= scrollEl.clientHeight)) {
+      e.preventDefault();
+    }
+  }
 }, { passive: false });
-document.addEventListener('touchend', () => { lastY = 0; }, { passive: true });
+
+// Also intercept at window level
+window.addEventListener('touchmove', e => {
+  if (!e.target.closest('.scrollable')) {
+    e.preventDefault();
+  }
+}, { passive: false });
+
+// Disable context menu long-press (another WebView annoyance)
+document.addEventListener('contextmenu', e => e.preventDefault());
+
+// Disable text selection during swipe
+document.addEventListener('selectstart', e => {
+  if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+    e.preventDefault();
+  }
+});
 </script>
 </body>
 </html>
